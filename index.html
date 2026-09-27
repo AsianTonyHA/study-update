@@ -222,6 +222,113 @@
     justify-content:center;
     margin-top:8px;
   }
+  .goal-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .goal-row label{margin:0;white-space:nowrap;}
+  .goal-row input{width:80px;}
+  .week-bars{
+    display:flex;
+    align-items:flex-end;
+    gap:10px;
+    height:140px;
+  }
+  .week-bar-col{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    height:100%;
+    justify-content:flex-end;
+    gap:6px;
+  }
+  .week-bar-track{
+    width:100%;
+    max-width:52px;
+    height:100%;
+    display:flex;
+    align-items:flex-end;
+    background:var(--panel-2);
+    border-radius:6px;
+    overflow:hidden;
+    position:relative;
+  }
+  .week-bar-fill{
+    width:100%;
+    background:linear-gradient(180deg,var(--amber),#b9843c);
+    border-radius:6px 6px 0 0;
+    transition:height .3s ease;
+  }
+  .week-bar-fill.met{background:linear-gradient(180deg,var(--green),#547a54);}
+  .week-bar-fill.current{outline:2px solid var(--ink);outline-offset:-2px;}
+  .week-bar-label{
+    font-size:0.7rem;
+    color:var(--muted);
+    text-align:center;
+    line-height:1.2;
+  }
+  .week-bar-mins{
+    font-size:0.72rem;
+    color:var(--ink);
+    font-weight:600;
+  }
+  .stopwatch{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:16px;
+  }
+  .sw-time{
+    font-family:'Source Serif 4',serif;
+    font-size:2.4rem;
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+    color:var(--amber);
+  }
+  .sw-controls{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .filter-tabs{
+    display:flex;
+    gap:6px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .filter-tab{
+    background:var(--panel-2);
+    color:var(--muted);
+    border:1px solid var(--line);
+    padding:6px 12px;
+    border-radius:20px;
+    font-size:0.8rem;
+    font-weight:500;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .filter-tab.active{
+    background:var(--amber);
+    color:#221a0c;
+    border-color:var(--amber);
+    font-weight:600;
+  }
+  .group-header{
+    font-size:0.78rem;
+    color:var(--muted);
+    font-weight:600;
+    text-transform:none;
+    margin:18px 0 4px;
+    padding-top:10px;
+    border-top:1px solid var(--line);
+  }
+  .group-header:first-child{border-top:none;padding-top:0;margin-top:0;}
+  .group-total{color:var(--amber);font-weight:600;}
   @media (prefers-color-scheme:light){
     :root:not([data-theme="dark"]){
       --bg:#f6f4ef;
@@ -244,6 +351,29 @@
     <div class="stat"><div class="num" id="statHours">0</div><div class="lbl">hours logged</div></div>
     <div class="stat"><div class="num" id="statStreak">0</div><div class="lbl">day streak</div></div>
     <div class="stat"><div class="num" id="statDays">0</div><div class="lbl">days this year</div></div>
+  </div>
+
+  <div class="panel" id="monthPanel">
+    <h2>This month, week by week</h2>
+    <div class="goal-row">
+      <label for="goalInput">Daily goal</label>
+      <input type="number" id="goalInput" min="0" step="5">
+      <span style="color:var(--muted);font-size:0.85rem;">minutes/day</span>
+    </div>
+    <div class="week-bars" id="weekBars"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Stopwatch</h2>
+    <div class="stopwatch">
+      <div class="sw-time" id="swTime">00:00:00</div>
+      <div class="sw-controls">
+        <button type="button" class="btn-primary" id="swStart">Start</button>
+        <button type="button" class="btn-ghost" id="swPause" style="display:none">Pause</button>
+        <button type="button" class="btn-ghost" id="swReset">Reset</button>
+        <button type="button" class="btn-ghost" id="swUse">Use this time</button>
+      </div>
+    </div>
   </div>
 
   <div class="panel">
@@ -287,6 +417,11 @@
 
   <div class="panel">
     <h2>Entries</h2>
+    <div class="filter-tabs" id="filterTabs">
+      <button type="button" class="filter-tab active" data-range="week">This week</button>
+      <button type="button" class="filter-tab" data-range="month">This month</button>
+      <button type="button" class="filter-tab" data-range="all">All time</button>
+    </div>
     <div class="entries" id="entries"></div>
   </div>
 
@@ -300,6 +435,7 @@
 <script>
 (function(){
   const STORAGE_KEY = 'study-log-entries';
+  const GOAL_KEY = 'study-log-goal-minutes';
 
   function load(){
     try{
@@ -311,8 +447,18 @@
     try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); }
     catch(e){ console.error('Could not save', e); }
   }
+  function loadGoal(){
+    const raw = localStorage.getItem(GOAL_KEY);
+    const n = parseInt(raw, 10);
+    return isNaN(n) ? 30 : n;
+  }
+  function saveGoal(mins){
+    try{ localStorage.setItem(GOAL_KEY, String(mins)); }catch(e){}
+  }
 
   let entries = load();
+  let goalMinutes = loadGoal();
+  let currentRange = 'week';
 
   const fDate = document.getElementById('fDate');
   const fMinutes = document.getElementById('fMinutes');
@@ -324,8 +470,84 @@
   const statHours = document.getElementById('statHours');
   const statStreak = document.getElementById('statStreak');
   const statDays = document.getElementById('statDays');
+  const weekBarsEl = document.getElementById('weekBars');
+  const goalInput = document.getElementById('goalInput');
+  const filterTabs = document.getElementById('filterTabs');
+  const swTime = document.getElementById('swTime');
+  const swStart = document.getElementById('swStart');
+  const swPause = document.getElementById('swPause');
+  const swReset = document.getElementById('swReset');
+  const swUse = document.getElementById('swUse');
 
   fDate.valueAsDate = new Date();
+  goalInput.value = goalMinutes;
+  goalInput.addEventListener('change', function(){
+    const v = parseInt(goalInput.value, 10);
+    goalMinutes = isNaN(v) || v < 0 ? 0 : v;
+    goalInput.value = goalMinutes;
+    saveGoal(goalMinutes);
+    renderWeekBars();
+  });
+
+  filterTabs.addEventListener('click', function(e){
+    const btn = e.target.closest('.filter-tab');
+    if(!btn) return;
+    currentRange = btn.dataset.range;
+    Array.from(filterTabs.children).forEach(c => c.classList.toggle('active', c === btn));
+    renderEntries();
+  });
+
+  // --- Stopwatch ---
+  let swElapsedMs = 0;
+  let swRunning = false;
+  let swStartedAt = 0;
+  let swInterval = null;
+
+  function fmtStopwatch(ms){
+    const totalSec = Math.floor(ms/1000);
+    const h = Math.floor(totalSec/3600);
+    const m = Math.floor((totalSec%3600)/60);
+    const s = totalSec%60;
+    const pad = n => String(n).padStart(2,'0');
+    return pad(h)+':'+pad(m)+':'+pad(s);
+  }
+  function swTick(){
+    const now = swElapsedMs + (Date.now() - swStartedAt);
+    swTime.textContent = fmtStopwatch(now);
+  }
+  swStart.addEventListener('click', function(){
+    swRunning = true;
+    swStartedAt = Date.now();
+    swInterval = setInterval(swTick, 1000);
+    swStart.style.display = 'none';
+    swPause.style.display = '';
+  });
+  swPause.addEventListener('click', function(){
+    swRunning = false;
+    swElapsedMs += Date.now() - swStartedAt;
+    clearInterval(swInterval);
+    swTime.textContent = fmtStopwatch(swElapsedMs);
+    swPause.style.display = 'none';
+    swStart.style.display = '';
+    swStart.textContent = 'Resume';
+  });
+  swReset.addEventListener('click', function(){
+    swRunning = false;
+    swElapsedMs = 0;
+    clearInterval(swInterval);
+    swTime.textContent = fmtStopwatch(0);
+    swPause.style.display = 'none';
+    swStart.style.display = '';
+    swStart.textContent = 'Start';
+  });
+  swUse.addEventListener('click', function(){
+    const currentMs = swRunning ? swElapsedMs + (Date.now() - swStartedAt) : swElapsedMs;
+    const mins = Math.max(1, Math.round(currentMs/60000));
+    fMinutes.value = mins;
+    fDate.valueAsDate = new Date();
+    fSubject.focus();
+    fSubject.scrollIntoView({behavior:'smooth', block:'center'});
+  });
 
   form.addEventListener('submit', function(e){
     e.preventDefault();
@@ -448,29 +670,133 @@
       heatmapEl.appendChild(cell);
     }
 
-    // entries list
+    renderWeekBars();
+    renderEntries();
+  }
+
+  // Monday-based start of week
+  function startOfWeek(d){
+    const x = new Date(d);
+    const day = (x.getDay() + 6) % 7; // 0 = Monday
+    x.setDate(x.getDate() - day);
+    x.setHours(0,0,0,0);
+    return x;
+  }
+  function isoDay(d){ return d.toISOString().slice(0,10); }
+
+  function renderWeekBars(){
+    const minutesByDate = {};
+    entries.forEach(en=>{ minutesByDate[en.date] = (minutesByDate[en.date]||0) + en.minutes; });
+
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth()+1, 0);
+    const firstWeekStart = startOfWeek(monthStart);
+    const weeks = [];
+    for(let ws = new Date(firstWeekStart); ws <= monthEnd; ws.setDate(ws.getDate()+7)){
+      const weekStart = new Date(ws);
+      const weekEnd = new Date(ws); weekEnd.setDate(weekEnd.getDate()+6);
+      let total = 0;
+      let containsToday = false;
+      for(let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate()+1)){
+        if(d.getMonth() !== today.getMonth()) continue; // only count days within this month
+        const iso = isoDay(d);
+        total += minutesByDate[iso] || 0;
+        if(iso === isoDay(today)) containsToday = true;
+      }
+      weeks.push({weekStart, weekEnd, total, containsToday});
+    }
+
+    const goalForWeek = goalMinutes * 7;
+    const maxVal = Math.max(goalForWeek, ...weeks.map(w=>w.total), 1);
+
+    weekBarsEl.innerHTML = '';
+    weeks.forEach(w=>{
+      const pct = Math.min(100, Math.round((w.total / maxVal) * 100));
+      const met = goalForWeek > 0 && w.total >= goalForWeek;
+      const col = document.createElement('div');
+      col.className = 'week-bar-col';
+      const label = w.weekStart.toLocaleDateString(undefined,{month:'short',day:'numeric'}) +
+        '\u2013' + w.weekEnd.toLocaleDateString(undefined,{day:'numeric'});
+      col.innerHTML =
+        '<div class="week-bar-mins">' + w.total + 'm</div>' +
+        '<div class="week-bar-track"><div class="week-bar-fill' + (met?' met':'') + (w.containsToday?' current':'') + '" style="height:' + pct + '%"></div></div>' +
+        '<div class="week-bar-label"></div>';
+      col.querySelector('.week-bar-label').textContent = (w.containsToday ? 'This week \u2022 ' : '') + label;
+      weekBarsEl.appendChild(col);
+    });
+  }
+
+  function renderEntries(){
     entriesEl.innerHTML = '';
     if(entries.length === 0){
       entriesEl.innerHTML = '<div class="empty">No sessions logged yet. Add your first one above.</div>';
       return;
     }
-    entries.forEach(en=>{
-      const row = document.createElement('div');
-      row.className = 'entry';
-      row.innerHTML =
-        '<div class="entry-main">' +
-          '<div class="entry-date">' + formatDate(en.date) + '</div>' +
-          '<div class="entry-subject"></div>' +
-          (en.notes ? '<div class="entry-notes"></div>' : '') +
-        '</div>' +
-        '<div class="entry-side">' +
-          '<div class="entry-mins">' + en.minutes + ' min</div>' +
-          '<button class="entry-del" data-id="' + en.id + '">Delete</button>' +
-        '</div>';
-      row.querySelector('.entry-subject').textContent = en.subject;
-      if(en.notes) row.querySelector('.entry-notes').textContent = en.notes;
-      entriesEl.appendChild(row);
+    const today = new Date();
+    const todayIso = isoDay(today);
+    const weekStartIso = isoDay(startOfWeek(today));
+    const monthPrefix = todayIso.slice(0,7);
+
+    let visible = entries;
+    if(currentRange === 'week'){
+      visible = entries.filter(en => en.date >= weekStartIso && en.date <= todayIso);
+    } else if(currentRange === 'month'){
+      visible = entries.filter(en => en.date.startsWith(monthPrefix));
+    }
+
+    if(visible.length === 0){
+      entriesEl.innerHTML = '<div class="empty">Nothing logged in this range yet.</div>';
+      return;
+    }
+
+    if(currentRange === 'week'){
+      visible.forEach(en => entriesEl.appendChild(buildEntryRow(en)));
+      return;
+    }
+
+    // group by week for month/all views
+    const groups = new Map();
+    visible.forEach(en=>{
+      const d = new Date(en.date + 'T00:00:00');
+      const ws = isoDay(startOfWeek(d));
+      if(!groups.has(ws)) groups.set(ws, []);
+      groups.get(ws).push(en);
     });
+    const sortedWeeks = Array.from(groups.keys()).sort().reverse();
+    sortedWeeks.forEach(ws=>{
+      const group = groups.get(ws);
+      const total = group.reduce((s,en)=>s+en.minutes,0);
+      const wsDate = new Date(ws + 'T00:00:00');
+      const weLabel = new Date(wsDate); weLabel.setDate(weLabel.getDate()+6);
+      const header = document.createElement('div');
+      header.className = 'group-header';
+      header.textContent = 'Week of ' + wsDate.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' \u2013 ' + weLabel.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + '  ';
+      const totalSpan = document.createElement('span');
+      totalSpan.className = 'group-total';
+      totalSpan.textContent = total + ' min total';
+      header.appendChild(totalSpan);
+      entriesEl.appendChild(header);
+      group.forEach(en => entriesEl.appendChild(buildEntryRow(en)));
+    });
+  }
+
+  function buildEntryRow(en){
+    const row = document.createElement('div');
+    row.className = 'entry';
+    row.innerHTML =
+      '<div class="entry-main">' +
+        '<div class="entry-date">' + formatDate(en.date) + '</div>' +
+        '<div class="entry-subject"></div>' +
+        (en.notes ? '<div class="entry-notes"></div>' : '') +
+      '</div>' +
+      '<div class="entry-side">' +
+        '<div class="entry-mins">' + en.minutes + ' min</div>' +
+        '<button class="entry-del" data-id="' + en.id + '">Delete</button>' +
+      '</div>';
+    row.querySelector('.entry-subject').textContent = en.subject;
+    if(en.notes) row.querySelector('.entry-notes').textContent = en.notes;
+    return row;
   }
 
   render();
