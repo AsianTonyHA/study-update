@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Study Log</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#e0a458">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Study Log">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -400,6 +406,31 @@
     white-space:nowrap;
   }
   .link-chip:hover{border-color:var(--amber);}
+  .subj-row{margin-bottom:16px;}
+  .subj-row:last-child{margin-bottom:0;}
+  .subj-top{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:5px;font-size:0.88rem;
+  }
+  .subj-name{font-weight:600;}
+  .subj-mins{color:var(--muted);font-size:0.8rem;}
+  .subj-track{
+    width:100%;height:9px;background:var(--panel-2);
+    border-radius:5px;overflow:hidden;
+  }
+  .subj-fill{height:100%;border-radius:5px;transition:width .3s ease;}
+  .subj-fill.met{filter:saturate(1.15);}
+  .subj-goal-row{
+    display:flex;align-items:center;gap:8px;margin-top:6px;
+  }
+  .subj-goal-row label{margin:0;font-size:0.72rem;white-space:nowrap;}
+  .subj-goal-input{width:60px;padding:5px 7px;font-size:0.8rem;}
+  .subj-goal-note{font-size:0.72rem;color:var(--muted);}
+  .entry-edit{
+    display:block;margin-top:6px;background:none;border:none;
+    color:var(--amber);font-size:0.75rem;cursor:pointer;padding:0;
+  }
+  .entry-edit:hover{text-decoration:underline;}
   @media (prefers-color-scheme:light){
     :root:not([data-theme="dark"]){
       --bg:#f6f4ef;
@@ -432,6 +463,20 @@
       <span style="color:var(--muted);font-size:0.85rem;">minutes/day</span>
     </div>
     <div class="week-bars" id="weekBars"></div>
+  </div>
+
+  <div class="panel" id="subjectPanel">
+    <h2>By subject</h2>
+    <div class="goal-row">
+      <label for="subjRange">Range</label>
+      <select id="subjRange">
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="month" selected>This month</option>
+      </select>
+    </div>
+    <div id="subjectBreakdown"></div>
   </div>
 
   <div class="panel">
@@ -497,7 +542,8 @@
         <input type="url" id="fLink" placeholder="YouTube video, article, resource — any URL">
       </div>
       <div class="row-end">
-        <button type="submit" class="btn-primary">Add entry</button>
+        <button type="button" class="btn-ghost" id="cancelEditBtn" style="display:none">Cancel edit</button>
+        <button type="submit" class="btn-primary" id="submitBtn">Add entry</button>
       </div>
     </form>
   </div>
@@ -562,6 +608,18 @@
   let goalMinutes = loadGoal();
   let currentRange = 'week';
   let currentTag = null;
+  const SUBJ_GOALS_KEY = 'study-log-subject-goals';
+  function loadSubjGoals(){
+    try{
+      const r = JSON.parse(localStorage.getItem(SUBJ_GOALS_KEY));
+      return r && typeof r === 'object' ? r : {};
+    }catch(e){ return {}; }
+  }
+  function saveSubjGoals(){
+    try{ localStorage.setItem(SUBJ_GOALS_KEY, JSON.stringify(subjectGoals)); }catch(e){}
+  }
+  let subjectGoals = loadSubjGoals();
+  let editingId = null;
   const TAGS_KEY = 'study-log-tags';
   const PALETTE = ['#e0a458','#7fae7f','#6fa8dc','#c98bb9','#d9776b','#8fbfc0','#b8b06a','#a58fd6'];
   function loadTags(){
@@ -604,6 +662,22 @@
   const tagGrid = document.getElementById('tagGrid');
   const tagDaysEl = document.getElementById('tagDays');
   const entriesTagNote = document.getElementById('entriesTagNote');
+  const subjRange = document.getElementById('subjRange');
+  const subjectBreakdown = document.getElementById('subjectBreakdown');
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
+  const submitBtn = document.getElementById('submitBtn');
+
+  subjRange.addEventListener('change', renderSubjects);
+  subjectBreakdown.addEventListener('change', function(e){
+    const inp = e.target.closest('.subj-goal-input');
+    if(!inp) return;
+    const subj = decodeURIComponent(inp.dataset.subj);
+    const v = parseInt(inp.value, 10);
+    subjectGoals[subj] = isNaN(v) || v < 0 ? 0 : v;
+    inp.value = subjectGoals[subj];
+    saveSubjGoals();
+    renderSubjects();
+  });
 
   tagDate.value = isoDay(new Date());
   tagDate.addEventListener('change', renderTagPicker);
@@ -678,10 +752,9 @@
       tagPicker.appendChild(chip);
     });
   }
-  function getRangeDays(){
+  function getRangeDaysFor(v){
     const today = new Date();
     const days = [];
-    const v = tagRange.value;
     if(v === 'month'){
       const last = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
       for(let i = 1; i <= last; i++) days.push(new Date(today.getFullYear(), today.getMonth(), i));
@@ -691,6 +764,44 @@
     }
     return days;
   }
+  function getRangeDays(){ return getRangeDaysFor(tagRange.value); }
+
+  function renderSubjects(){
+    const days = getRangeDaysFor(subjRange.value);
+    const isoSet = new Set(days.map(isoDay));
+    const totals = {};
+    entries.forEach(en => {
+      if(!isoSet.has(en.date)) return;
+      totals[en.subject] = (totals[en.subject] || 0) + en.minutes;
+    });
+    const subjList = Object.keys(totals).sort((a,b) => totals[b] - totals[a]);
+    subjectBreakdown.innerHTML = '';
+    if(!subjList.length){
+      subjectBreakdown.innerHTML = '<div class="empty">Nothing logged in this range yet.</div>';
+      return;
+    }
+    const maxVal = Math.max(...subjList.map(s => totals[s]));
+    const rangeDayCount = days.length;
+    subjList.forEach((subj, i) => {
+      const mins = totals[subj];
+      const pct = Math.round((mins / maxVal) * 100);
+      const goal = subjectGoals[subj] || 0;
+      const goalTotal = goal * rangeDayCount;
+      const met = goalTotal > 0 && mins >= goalTotal;
+      const color = PALETTE[i % PALETTE.length];
+      const row = document.createElement('div');
+      row.className = 'subj-row';
+      row.innerHTML =
+        '<div class="subj-top"><span class="subj-name"></span><span class="subj-mins"></span></div>' +
+        '<div class="subj-track"><div class="subj-fill' + (met ? ' met' : '') + '" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+        '<div class="subj-goal-row"><label>Daily goal</label><input type="number" min="0" step="5" class="subj-goal-input" data-subj="' + encodeURIComponent(subj) + '" value="' + goal + '"><span class="subj-goal-note"></span></div>';
+      row.querySelector('.subj-name').textContent = subj;
+      row.querySelector('.subj-mins').textContent = mins + ' min';
+      row.querySelector('.subj-goal-note').textContent = goalTotal > 0 ? (mins + '/' + goalTotal + ' min goal') : 'min/day \u00b7 0 = no goal';
+      subjectBreakdown.appendChild(row);
+    });
+  }
+
   function renderTags(){
     renderTagPicker();
     tagFilter.innerHTML = '';
@@ -844,14 +955,26 @@
   form.addEventListener('submit', function(e){
     e.preventDefault();
     if(!fDate.value || !fMinutes.value || !fSubject.value.trim()) return;
-    entries.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-      date: fDate.value,
-      minutes: parseInt(fMinutes.value, 10),
-      subject: fSubject.value.trim(),
-      notes: fNotes.value.trim(),
-      link: fLink.value.trim()
-    });
+    if(editingId){
+      const en = entries.find(x => x.id === editingId);
+      if(en){
+        en.date = fDate.value;
+        en.minutes = parseInt(fMinutes.value, 10);
+        en.subject = fSubject.value.trim();
+        en.notes = fNotes.value.trim();
+        en.link = fLink.value.trim();
+      }
+      stopEdit();
+    } else {
+      entries.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+        date: fDate.value,
+        minutes: parseInt(fMinutes.value, 10),
+        subject: fSubject.value.trim(),
+        notes: fNotes.value.trim(),
+        link: fLink.value.trim()
+      });
+    }
     entries.sort((a,b)=> b.date.localeCompare(a.date));
     save(entries);
     fMinutes.value = '';
@@ -862,11 +985,46 @@
     render();
   });
 
+  function startEdit(id){
+    const en = entries.find(x => x.id === id);
+    if(!en) return;
+    editingId = id;
+    fDate.value = en.date;
+    fMinutes.value = en.minutes;
+    fSubject.value = en.subject;
+    fNotes.value = en.notes || '';
+    fLink.value = en.link || '';
+    submitBtn.textContent = 'Save changes';
+    cancelEditBtn.style.display = '';
+    if(fSubject.scrollIntoView) fSubject.scrollIntoView({behavior:'smooth', block:'center'});
+    fSubject.focus();
+  }
+  function stopEdit(){
+    editingId = null;
+    submitBtn.textContent = 'Add entry';
+    cancelEditBtn.style.display = 'none';
+  }
+  cancelEditBtn.addEventListener('click', function(){
+    stopEdit();
+    fMinutes.value = '';
+    fSubject.value = '';
+    fNotes.value = '';
+    fLink.value = '';
+    fDate.value = isoDay(new Date());
+  });
+
   entriesEl.addEventListener('click', function(e){
-    const btn = e.target.closest('.entry-del');
-    if(!btn) return;
-    const id = btn.dataset.id;
+    const editBtn = e.target.closest('.entry-edit');
+    if(editBtn){ startEdit(editBtn.dataset.id); return; }
+    const delBtn = e.target.closest('.entry-del');
+    if(!delBtn) return;
+    const id = delBtn.dataset.id;
     entries = entries.filter(en => en.id !== id);
+    if(editingId === id){
+      stopEdit();
+      fMinutes.value = ''; fSubject.value = ''; fNotes.value = ''; fLink.value = '';
+      fDate.value = isoDay(new Date());
+    }
     save(entries);
     render();
   });
@@ -977,6 +1135,7 @@
     }
 
     renderWeekBars();
+    renderSubjects();
     renderTags();
     renderEntries();
   }
@@ -1118,7 +1277,8 @@
       '</div>' +
       '<div class="entry-side">' +
         '<div class="entry-mins">' + en.minutes + ' min</div>' +
-        '<button class="entry-del" data-id="' + en.id + '">Delete</button>' +
+        '<button type="button" class="entry-edit" data-id="' + en.id + '">Edit</button>' +
+        '<button type="button" class="entry-del" data-id="' + en.id + '">Delete</button>' +
       '</div>';
     row.querySelector('.entry-subject').textContent = en.subject;
     if(en.notes) row.querySelector('.entry-notes').textContent = en.notes;
@@ -1158,6 +1318,12 @@
       row.querySelector('.entry-main').appendChild(wrap);
     }
     return row;
+  }
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
   }
 
   render();
